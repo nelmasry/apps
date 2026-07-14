@@ -125,6 +125,13 @@
       letter-spacing: -0.06em;
     }
 
+    .next-clock {
+      color: var(--muted);
+      font-size: 16px;
+      font-weight: 700;
+      margin-top: 8px;
+    }
+
     .next-line {
       text-align: right;
       font-size: 20px;
@@ -197,6 +204,18 @@
     .time {
       font-size: 24px;
       font-weight: 850;
+      white-space: nowrap;
+    }
+
+    .time-block {
+      text-align: right;
+    }
+
+    .exact-time {
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 700;
+      margin-top: 3px;
       white-space: nowrap;
     }
 
@@ -300,7 +319,10 @@
       <div class="next-label">Next departure</div>
 
       <div class="next-main">
-        <div id="nextTime" class="next-time">--</div>
+        <div>
+          <div id="nextTime" class="next-time">--</div>
+          <div id="nextClock" class="next-clock">--:--</div>
+        </div>
 
         <div>
           <div id="nextLine" class="next-line">--</div>
@@ -328,9 +350,6 @@
 
       // Show all matching departures within the next 1 hour.
       lookAheadMinutes: 60,
-
-      // If a departure is more than 30 minutes away, show the clock time instead.
-      showClockTimeAfterMinutes: 30,
 
       // Use ["TRAM"] for Lidingöbanan only.
       // Use ["TRAM", "BUS"] to show both tram 21 and bus 206.
@@ -412,10 +431,6 @@
         return "Now";
       }
 
-      if (mins > CONFIG.showClockTimeAfterMinutes) {
-        return formatClockTime(departure.expected);
-      }
-
       return `${mins} min`;
     }
 
@@ -445,6 +460,7 @@
         expected: d.expected,
         scheduled: d.scheduled,
         state: d.state,
+        journeyId: d.journey?.id,
         line: d.line?.designation,
         mode: d.line?.transport_mode,
         groupOfLines: d.line?.group_of_lines,
@@ -455,6 +471,8 @@
     }
 
     function filterDepartures(departures) {
+      const seenJourneys = new Set();
+
       return departures
         .map(normalizeDeparture)
         .filter(d => d.destination?.toLowerCase() === CONFIG.destination.toLowerCase())
@@ -464,7 +482,21 @@
           const mins = minutesUntil(d.expected);
           return mins >= 0 && mins <= CONFIG.lookAheadMinutes;
         })
-        .sort((a, b) => new Date(a.expected) - new Date(b.expected));
+        .sort((a, b) => new Date(a.expected) - new Date(b.expected))
+        .filter(d => {
+          if (!d.journeyId) {
+            return true;
+          }
+
+          const journeyKey = `${d.mode}:${d.line}:${d.journeyId}`;
+
+          if (seenJourneys.has(journeyKey)) {
+            return false;
+          }
+
+          seenJourneys.add(journeyKey);
+          return true;
+        });
     }
 
     function renderDepartures(items) {
@@ -473,6 +505,7 @@
 
       if (items.length === 0) {
         $("nextTime").textContent = "--";
+        $("nextClock").textContent = "--:--";
         $("nextLine").textContent = "No departures";
         $("nextMode").textContent = "Try refreshing";
 
@@ -493,6 +526,7 @@
       const next = items[0];
 
       $("nextTime").textContent = formatDepartureTime(next);
+      $("nextClock").textContent = formatClockTime(next.expected);
       $("nextLine").textContent = `${modeIcon(next.mode)} ${next.line} ${next.destination}`;
       $("nextMode").textContent = formatMode(next.mode);
 
@@ -509,7 +543,10 @@
               ${item.stopPoint ? " · Platform " + item.stopPoint : ""}
             </div>
           </div>
-          <div class="time">${formatDepartureTime(item)}</div>
+          <div class="time-block">
+            <div class="time">${formatDepartureTime(item)}</div>
+            <div class="exact-time">${formatClockTime(item.expected)}</div>
+          </div>
         `;
 
         rows.appendChild(row);
