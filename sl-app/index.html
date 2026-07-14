@@ -179,6 +179,26 @@
       padding: 14px 16px;
     }
 
+    .row-button {
+      width: 100%;
+      color: inherit;
+      font: inherit;
+      text-align: left;
+      cursor: pointer;
+      transition: border-color 160ms ease, background 160ms ease, transform 160ms ease;
+    }
+
+    .row-button:hover {
+      background: rgba(31, 43, 68, 0.96);
+      border-color: rgba(56, 189, 248, 0.32);
+      transform: translateY(-1px);
+    }
+
+    .row-button:focus-visible {
+      outline: 3px solid rgba(56, 189, 248, 0.55);
+      outline-offset: 2px;
+    }
+
     .line {
       height: 38px;
       border-radius: 12px;
@@ -217,6 +237,117 @@
       font-weight: 700;
       margin-top: 3px;
       white-space: nowrap;
+    }
+
+    body.modal-open {
+      overflow: hidden;
+    }
+
+    .details-modal {
+      position: fixed;
+      inset: 0;
+      z-index: 1000;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      background: rgba(3, 6, 12, 0.78);
+      backdrop-filter: blur(8px);
+    }
+
+    .details-modal[hidden] {
+      display: none;
+    }
+
+    .details-panel {
+      width: min(520px, 100%);
+      max-height: min(760px, calc(100vh - 48px));
+      display: flex;
+      flex-direction: column;
+      background: #111827;
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      box-shadow: 0 28px 90px rgba(0, 0, 0, 0.62);
+      overflow: hidden;
+    }
+
+    .details-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+      padding: 22px 22px 18px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .details-title {
+      margin: 0;
+      font-size: 26px;
+      line-height: 1.1;
+    }
+
+    .details-subtitle {
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.4;
+    }
+
+    .details-close {
+      width: 38px;
+      height: 38px;
+      flex: 0 0 auto;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--text);
+      font: inherit;
+      font-size: 24px;
+      line-height: 1;
+      cursor: pointer;
+    }
+
+    .details-close:hover,
+    .details-close:focus-visible {
+      background: rgba(255, 255, 255, 0.12);
+    }
+
+    .details-body {
+      min-height: 150px;
+      overflow-y: auto;
+      padding: 18px 22px 22px;
+    }
+
+    .details-status {
+      color: var(--muted);
+      padding: 28px 8px;
+      text-align: center;
+    }
+
+    .details-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .detail-row {
+      display: grid;
+      grid-template-columns: 54px 1fr auto;
+      gap: 12px;
+      align-items: center;
+      padding: 14px 16px;
+      background: rgba(23, 32, 51, 0.9);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+    }
+
+    .detail-route {
+      font-size: 17px;
+      font-weight: 760;
+    }
+
+    .detail-meta {
+      margin-top: 3px;
+      color: var(--muted);
+      font-size: 12px;
     }
 
     .warning {
@@ -295,6 +426,26 @@
         flex-direction: column;
         gap: 4px;
       }
+
+      .details-modal {
+        padding: 12px;
+      }
+
+      .details-panel {
+        max-height: calc(100vh - 24px);
+        border-radius: 20px;
+      }
+
+      .details-header,
+      .details-body {
+        padding-left: 16px;
+        padding-right: 16px;
+      }
+
+      .detail-row {
+        grid-template-columns: 48px 1fr auto;
+        padding: 12px;
+      }
     }
   </style>
 </head>
@@ -338,18 +489,45 @@
 
     <footer class="footer">
       <span>Data from SL / Trafiklab</span>
-      <span>Refreshes every 60s</span>
+      <span id="refreshCountdown">Refreshes in 60s</span>
     </footer>
   </main>
 
+  <div id="detailsModal" class="details-modal" hidden aria-hidden="true">
+    <section class="details-panel" role="dialog" aria-modal="true" aria-labelledby="detailsTitle">
+      <header class="details-header">
+        <div>
+          <h2 id="detailsTitle" class="details-title">Upcoming departures</h2>
+          <div id="detailsSubtitle" class="details-subtitle">Next 2 hours</div>
+        </div>
+        <button id="detailsClose" class="details-close" type="button" aria-label="Close departure list">&times;</button>
+      </header>
+
+      <div class="details-body">
+        <div id="detailsStatus" class="details-status">Loading departures...</div>
+        <div id="detailsList" class="details-list"></div>
+      </div>
+    </section>
+  </div>
+
   <script>
     const API_URL = "https://transport.integration.sl.se/v1/sites/9249/departures";
+    const JOURNEY_API_URL = "https://journeyplanner.integration.sl.se/v2/trips";
 
     const CONFIG = {
       destination: "Ropsten",
 
       // Show all matching departures within the next 1 hour.
       lookAheadMinutes: 60,
+
+      // Load the selected line's direct departures for the next 2 hours.
+      detailsLookAheadMinutes: 120,
+      detailsQueryOffsetsMinutes: [0, 30, 60, 90],
+      originSiteId: "9091001000009249",
+      destinationSiteId: "9091001000009220",
+
+      // Show departures this many minutes earlier as a safety buffer.
+      safetyBufferMinutes: 1,
 
       // Use ["TRAM"] for Lidingöbanan only.
       // Use ["TRAM", "BUS"] to show both tram 21 and bus 206.
@@ -363,6 +541,14 @@
     };
 
     const $ = (id) => document.getElementById(id);
+
+    function getBufferedDepartureDate(dateString) {
+      const departure = new Date(dateString);
+
+      return new Date(
+        departure.getTime() - CONFIG.safetyBufferMinutes * 60_000
+      );
+    }
 
     function modeIcon(mode) {
       switch (mode) {
@@ -399,14 +585,14 @@
     }
 
     function minutesUntil(dateString) {
-      const expected = new Date(dateString);
+      const expected = getBufferedDepartureDate(dateString);
       const now = new Date();
 
       return Math.round((expected.getTime() - now.getTime()) / 60_000);
     }
 
     function formatClockTime(dateString) {
-      const date = new Date(dateString);
+      const date = getBufferedDepartureDate(dateString);
 
       return date.toLocaleTimeString("en-GB", {
         hour: "2-digit",
@@ -470,12 +656,24 @@
       };
     }
 
+    function matchesConfiguredDestination(destination) {
+      if (!destination) {
+        return false;
+      }
+
+      const normalizedDestination = destination.toLowerCase();
+      const configuredDestination = CONFIG.destination.toLowerCase();
+
+      return normalizedDestination === configuredDestination ||
+        normalizedDestination.startsWith(`${configuredDestination} via `);
+    }
+
     function filterDepartures(departures) {
       const seenJourneys = new Set();
 
       return departures
         .map(normalizeDeparture)
-        .filter(d => d.destination?.toLowerCase() === CONFIG.destination.toLowerCase())
+        .filter(d => matchesConfiguredDestination(d.destination))
         .filter(d => CONFIG.transportModes.includes(d.mode))
         .filter(d => CONFIG.lines.includes(d.line))
         .filter(d => {
@@ -531,8 +729,13 @@
       $("nextMode").textContent = formatMode(next.mode);
 
       for (const item of items) {
-        const row = document.createElement("div");
-        row.className = "row";
+        const row = document.createElement("button");
+        row.type = "button";
+        row.className = "row row-button";
+        row.setAttribute(
+          "aria-label",
+          `Show ${item.line} departures to ${item.destination} for the next 2 hours`
+        );
 
         row.innerHTML = `
           <div class="line">${item.line}</div>
@@ -549,7 +752,253 @@
           </div>
         `;
 
+        row.addEventListener("click", () => openDepartureDetails(item));
+
         rows.appendChild(row);
+      }
+    }
+
+    function formatJourneyQueryDate(date) {
+      const parts = Object.fromEntries(
+        new Intl.DateTimeFormat("en-GB", {
+          timeZone: "Europe/Stockholm",
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit",
+          hourCycle: "h23"
+        })
+          .formatToParts(date)
+          .filter(part => part.type !== "literal")
+          .map(part => [part.type, part.value])
+      );
+
+      return {
+        date: `${parts.year}${parts.month}${parts.day}`,
+        time: `${parts.hour}${parts.minute}`
+      };
+    }
+
+    function buildJourneyPlannerUrl(mode, queryDate) {
+      const modeParameter = {
+        TRAM: "incl_mot_4",
+        BUS: "incl_mot_5"
+      }[mode];
+
+      if (!modeParameter) {
+        throw new Error(`Unsupported transport mode: ${mode}`);
+      }
+
+      const { date, time } = formatJourneyQueryDate(queryDate);
+      const url = new URL(JOURNEY_API_URL);
+      const transportParameters = [
+        "incl_mot_0",
+        "incl_mot_2",
+        "incl_mot_4",
+        "incl_mot_5",
+        "incl_mot_9",
+        "incl_mot_10",
+        "incl_mot_14",
+        "incl_mot_19"
+      ];
+
+      url.searchParams.set("type_origin", "any");
+      url.searchParams.set("name_origin", CONFIG.originSiteId);
+      url.searchParams.set("type_destination", "any");
+      url.searchParams.set("name_destination", CONFIG.destinationSiteId);
+      url.searchParams.set("calc_number_of_trips", "3");
+      url.searchParams.set("calc_one_direction", "true");
+      url.searchParams.set("max_changes", "0");
+      url.searchParams.set("no_alt", "true");
+      url.searchParams.set("language", "en");
+      url.searchParams.set("itd_date", date);
+      url.searchParams.set("itd_time", time);
+      url.searchParams.set("itd_trip_date_time_dep_arr", "dep");
+
+      for (const parameter of transportParameters) {
+        url.searchParams.set(parameter, "false");
+      }
+
+      url.searchParams.set(modeParameter, "true");
+      return url.toString();
+    }
+
+    function normalizeDetailedJourney(journey, selectedDeparture) {
+      const matchingLeg = journey.legs?.find(leg => {
+        const line = leg.transportation?.disassembledName;
+        const destination = leg.transportation?.destination?.name;
+
+        return line === selectedDeparture.line &&
+          matchesConfiguredDestination(destination);
+      });
+
+      if (!matchingLeg) {
+        return null;
+      }
+
+      const expected = matchingLeg.origin?.departureTimeEstimated ||
+        matchingLeg.origin?.departureTimePlanned ||
+        matchingLeg.origin?.departureTimeBaseTimetable;
+
+      if (!expected) {
+        return null;
+      }
+
+      const transportation = matchingLeg.transportation;
+
+      return {
+        destination: CONFIG.destination,
+        expected,
+        scheduled: matchingLeg.origin?.departureTimePlanned || expected,
+        journeyId: transportation?.properties?.RealtimeTripId ||
+          transportation?.properties?.AVMSTripID ||
+          matchingLeg.properties?.tripId ||
+          journey.tripId ||
+          `${selectedDeparture.mode}:${selectedDeparture.line}:${expected}`,
+        line: selectedDeparture.line,
+        mode: selectedDeparture.mode,
+        groupOfLines: selectedDeparture.groupOfLines,
+        stopPoint: matchingLeg.origin?.properties?.platformName ||
+          matchingLeg.origin?.disassembledName,
+        deviations: []
+      };
+    }
+
+    async function loadDetailedDepartures(selectedDeparture) {
+      const windowStart = new Date();
+      const queries = CONFIG.detailsQueryOffsetsMinutes.map(offsetMinutes => {
+        const queryDate = new Date(windowStart.getTime() + offsetMinutes * 60_000);
+        const url = buildJourneyPlannerUrl(selectedDeparture.mode, queryDate);
+
+        return fetch(url, {
+          headers: {
+            "Accept": "application/json"
+          }
+        }).then(async response => {
+          if (!response.ok) {
+            throw new Error(`SL Journey Planner failed: ${response.status}`);
+          }
+
+          return response.json();
+        });
+      });
+
+      const responses = await Promise.all(queries);
+      const seenJourneys = new Set();
+
+      return responses
+        .flatMap(response => response.journeys || [])
+        .map(journey => normalizeDetailedJourney(journey, selectedDeparture))
+        .filter(Boolean)
+        .filter(departure => {
+          const mins = minutesUntil(departure.expected);
+          return mins >= 0 && mins <= CONFIG.detailsLookAheadMinutes;
+        })
+        .sort((a, b) => new Date(a.expected) - new Date(b.expected))
+        .filter(departure => {
+          const journeyKey = `${departure.mode}:${departure.line}:${departure.journeyId}`;
+
+          if (seenJourneys.has(journeyKey)) {
+            return false;
+          }
+
+          seenJourneys.add(journeyKey);
+          return true;
+        });
+    }
+
+    function renderDetailedDepartures(items) {
+      const list = $("detailsList");
+      const status = $("detailsStatus");
+      list.replaceChildren();
+
+      if (items.length === 0) {
+        status.hidden = false;
+        status.textContent = "No matching departures found in the next 2 hours.";
+        return;
+      }
+
+      status.hidden = true;
+
+      for (const item of items) {
+        const detailRow = document.createElement("div");
+        detailRow.className = "detail-row";
+
+        const line = document.createElement("div");
+        line.className = "line";
+        line.textContent = item.line;
+
+        const route = document.createElement("div");
+        const routeName = document.createElement("div");
+        routeName.className = "detail-route";
+        routeName.textContent = `${modeIcon(item.mode)} ${item.destination}`;
+
+        const meta = document.createElement("div");
+        meta.className = "detail-meta";
+        meta.textContent = formatMode(item.mode) +
+          (item.stopPoint ? ` · Platform ${item.stopPoint}` : "");
+        route.append(routeName, meta);
+
+        const time = document.createElement("div");
+        time.className = "time-block";
+        const relativeTime = document.createElement("div");
+        relativeTime.className = "time";
+        relativeTime.textContent = formatDepartureTime(item);
+        const exactTime = document.createElement("div");
+        exactTime.className = "exact-time";
+        exactTime.textContent = formatClockTime(item.expected);
+        time.append(relativeTime, exactTime);
+
+        detailRow.append(line, route, time);
+        list.appendChild(detailRow);
+      }
+    }
+
+    let detailRequestId = 0;
+    let detailTrigger = null;
+
+    async function openDepartureDetails(selectedDeparture) {
+      const requestId = ++detailRequestId;
+      detailTrigger = document.activeElement;
+
+      $("detailsTitle").textContent =
+        `${modeIcon(selectedDeparture.mode)} ${selectedDeparture.line} to ${CONFIG.destination}`;
+      $("detailsSubtitle").textContent =
+        "Next 2 hours · includes the 1-minute safety buffer";
+      $("detailsStatus").hidden = false;
+      $("detailsStatus").textContent = "Loading departures...";
+      $("detailsList").replaceChildren();
+      $("detailsModal").hidden = false;
+      $("detailsModal").setAttribute("aria-hidden", "false");
+      document.body.classList.add("modal-open");
+      $("detailsClose").focus();
+
+      try {
+        const items = await loadDetailedDepartures(selectedDeparture);
+
+        if (requestId === detailRequestId) {
+          renderDetailedDepartures(items);
+        }
+      } catch (error) {
+        console.error(error);
+
+        if (requestId === detailRequestId) {
+          $("detailsStatus").hidden = false;
+          $("detailsStatus").textContent =
+            "Could not load the 2-hour departure list. Please try again.";
+        }
+      }
+    }
+
+    function closeDepartureDetails() {
+      detailRequestId += 1;
+      $("detailsModal").hidden = true;
+      $("detailsModal").setAttribute("aria-hidden", "true");
+      document.body.classList.remove("modal-open");
+
+      if (detailTrigger instanceof HTMLElement) {
+        detailTrigger.focus();
       }
     }
 
@@ -595,6 +1044,15 @@
       error.textContent = "";
     }
 
+    let nextRefreshAt = Date.now() + CONFIG.refreshMs;
+
+    function updateRefreshCountdown() {
+      const millisecondsLeft = Math.max(0, nextRefreshAt - Date.now());
+      const secondsLeft = Math.ceil(millisecondsLeft / 1_000);
+
+      $("refreshCountdown").textContent = `Refreshes in ${secondsLeft}s`;
+    }
+
     async function loadDepartures() {
       try {
         clearError();
@@ -625,8 +1083,27 @@
       }
     }
 
-    loadDepartures();
-    setInterval(loadDepartures, CONFIG.refreshMs);
+    function startRefreshCycle() {
+      nextRefreshAt = Date.now() + CONFIG.refreshMs;
+      updateRefreshCountdown();
+      loadDepartures();
+    }
+
+    $("detailsClose").addEventListener("click", closeDepartureDetails);
+    $("detailsModal").addEventListener("click", event => {
+      if (event.target === $("detailsModal")) {
+        closeDepartureDetails();
+      }
+    });
+    document.addEventListener("keydown", event => {
+      if (event.key === "Escape" && !$("detailsModal").hidden) {
+        closeDepartureDetails();
+      }
+    });
+
+    startRefreshCycle();
+    setInterval(startRefreshCycle, CONFIG.refreshMs);
+    setInterval(updateRefreshCountdown, 1_000);
   </script>
 </body>
 </html>
